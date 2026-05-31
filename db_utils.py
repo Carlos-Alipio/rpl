@@ -1,125 +1,104 @@
-import sqlite3
+import streamlit as st
 import pandas as pd
+import bcrypt
+from sqlalchemy import text
 
-DB_PATH = 'database.sqlite'
+# ==========================================
+# CONEXÃO COM O SUPABASE
+# ==========================================
+# O Streamlit gere a conexão automaticamente através do secrets.toml
+conn = st.connection("supabase", type="sql")
 
+# ==========================================
+# GESTÃO DE ROTAS E AEROPORTOS (PANDAS + SQLALCHEMY)
+# ==========================================
 def get_rotas():
-    """Lê a tabela de rotas da base de dados e devolve um DataFrame."""
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM rotas", conn)
-    conn.close()
-    return df
+    try:
+        # conn.query já devolve um DataFrame do Pandas!
+        return conn.query("SELECT * FROM rotas")
+    except Exception:
+        return pd.DataFrame() # Retorna vazio se a tabela ainda não existir
 
 def get_aeroportos():
-    """Lê a tabela de aeroportos da base de dados e devolve um DataFrame."""
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM aeroportos", conn)
-    conn.close()
-    return df
+    try:
+        return conn.query("SELECT * FROM aeroportos")
+    except Exception:
+        return pd.DataFrame()
 
 def save_rotas(df):
-    """Guarda as alterações feitas na tabela de rotas."""
-    conn = sqlite3.connect(DB_PATH)
-    df.to_sql('rotas', conn, if_exists='replace', index=False)
-    conn.close()
+    # O to_sql com o engine do SQLAlchemy cria ou atualiza a tabela automaticamente no Supabase
+    df.to_sql('rotas', con=conn.engine, if_exists='replace', index=False)
 
 def save_aeroportos(df):
-    """Guarda as alterações feitas na tabela de aeroportos."""
-    conn = sqlite3.connect(DB_PATH)
-    df.to_sql('aeroportos', conn, if_exists='replace', index=False)
-    conn.close()
-
-import bcrypt
+    df.to_sql('aeroportos', con=conn.engine, if_exists='replace', index=False)
 
 # ==========================================
 # GESTÃO DE UTILIZADORES E SEGURANÇA
 # ==========================================
 def init_db():
-    """Cria a tabela de utilizadores e um admin padrão, corrigindo problemas de colunas se necessário."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # 1. Verifica se a tabela existe E se tem a coluna nova 'precisa_trocar_senha'
-    try:
-        c.execute("SELECT precisa_trocar_senha FROM usuarios LIMIT 1")
-    except sqlite3.OperationalError:
-        # Se deu erro, a tabela não existe ou é a versão antiga do seu outro app. Vamos recriar do zero!
-        c.execute("DROP TABLE IF EXISTS usuarios")
-        c.execute('''
-            CREATE TABLE usuarios (
+    """Cria a tabela de utilizadores no Supabase e o admin padrão."""
+    with conn.session as s:
+        # Usa o tipo BOOLEAN verdadeiro do PostgreSQL
+        s.execute(text('''
+            CREATE TABLE IF NOT EXISTS usuarios (
                 email TEXT PRIMARY KEY,
                 senha_hash TEXT NOT NULL,
-                precisa_trocar_senha BOOLEAN NOT NULL CHECK (precisa_trocar_senha IN (0, 1))
+                precisa_trocar_senha BOOLEAN NOT NULL
             )
-        ''')
-        conn.commit()
-    
-    # 2. Se a tabela estiver vazia, cria o primeiro Administrador de emergência
-    c.execute("SELECT COUNT(*) FROM usuarios")
-    if c.fetchone()[0] == 0:
-        senha_padrao = bcrypt.hashpw("glo2026".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        c.execute("INSERT INTO usuarios (email, senha_hash, precisa_trocar_senha) VALUES (?, ?, 1)",
-                  ("admin@glo.com.br", senha_padrao))
-        conn.commit()
+        '''))
         
-    conn.close()
+        # Verifica se o Admin existe
+        res = s.execute(text("SELECT COUNT(*) FROM usuarios")).scalar()
+        if res == 0:
+            senha_padrao = bcrypt.hashpw("glo2026".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            s.execute(text(
+                "INSERT INTO usuarios (email, senha_hash, precisa_trocar_senha) VALUES (:email, :senha, TRUE)"
+            ), {"email": "admin@glo.com.br", "senha": senha_padrao})
+        
+        s.commit() # Confirma as alterações na base de dados
 
 def verificar_login(email, senha):
-    """Verifica se o email existe e se a senha criptografada bate certo."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT senha_hash, precisa_trocar_senha FROM usuarios WHERE email = ?", (email.lower().strip(),))
-    user = c.fetchone()
-    conn.close()
+    with conn.session as s:
+        result = s.execute(text(
+            "SELECT senha_hash, precisa_trocar_senha FROM usuarios WHERE email = :email"
+        ), {"email": email.lower().strip()}).fetchone()
 
-    if user:
-        senha_hash = user[0]
-        precisa_trocar = bool(user[1])
-        # Compara a senha digitada com o Hash na base de dados
+    if result:
+        senha_hash, precisa_trocar = result
         if bcrypt.checkpw(senha.encode('utf-8'), senha_hash.encode('utf-8')):
             return True, precisa_trocar
     return False, False
 
 def atualizar_senha(email, nova_senha):
-    """Guarda a nova senha do utilizador e tira a obrigatoriedade de troca."""
     novo_hash = bcrypt.hashpw(nova_senha.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE usuarios SET senha_hash = ?, precisa_trocar_senha = 0 WHERE email = ?", 
-              (novo_hash, email.lower().strip()))
-    conn.commit()
-    conn.close()
+    with conn.session as s:
+        s.execute(text(
+            "UPDATE usuarios SET senha_hash = :hash, precisa_trocar_senha = FALSE WHERE email = :email"
+        ), {"hash": novo_hash, "email": email.lower().strip()})
+        s.commit()
 
 def adicionar_usuario(email, senha_provisoria):
-    """Usado pelo Admin para pré-autorizar um novo operador."""
     hash_senha = bcrypt.hashpw(senha_provisoria.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     try:
-        # Coloca 1 (True) para forçar o operador a mudar a senha no primeiro acesso
-        c.execute("INSERT INTO usuarios (email, senha_hash, precisa_trocar_senha) VALUES (?, ?, 1)", 
-                  (email.lower().strip(), hash_senha))
-        conn.commit()
-        sucesso = True
-    except sqlite3.IntegrityError:
-        sucesso = False # O e-mail já existe
-    conn.close()
-    return sucesso
+        with conn.session as s:
+            s.execute(text(
+                "INSERT INTO usuarios (email, senha_hash, precisa_trocar_senha) VALUES (:email, :hash, TRUE)"
+            ), {"email": email.lower().strip(), "hash": hash_senha})
+            s.commit()
+        return True
+    except Exception:
+        return False # E-mail já existe (Violação de Primary Key)
 
 def get_usuarios():
-    """Lê a lista de acessos para o painel de configurações."""
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT email, precisa_trocar_senha FROM usuarios", conn)
-    conn.close()
-    return df
+    try:
+        return conn.query("SELECT email, precisa_trocar_senha FROM usuarios")
+    except Exception:
+        return pd.DataFrame(columns=['email', 'precisa_trocar_senha'])
 
 def remover_usuario(email):
-    """Remove o acesso de um utilizador."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM usuarios WHERE email = ?", (email.lower().strip(),))
-    conn.commit()
-    conn.close()
+    with conn.session as s:
+        s.execute(text("DELETE FROM usuarios WHERE email = :email"), {"email": email.lower().strip()})
+        s.commit()
 
-# Executa a inicialização sempre que o sistema arranca
+# Inicializa as tabelas de segurança no arranque
 init_db()
