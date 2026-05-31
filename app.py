@@ -107,11 +107,8 @@ else:
         pg_rpl = st.Page("pages/1_✈️_Gerador_RPL.py", title="Gerador RPL", icon=":material/flight_takeoff:", default=True)
         pg_config = st.Page("pages/2_⚙️_Configuracoes.py", title="Configurações", icon=":material/settings:")
 
-        # 3. Construção da Navegação Agrupada
-        pg = st.navigation({
-            "Operacional": [pg_rpl],
-            "Ajustes": [pg_config]
-        })
+        # 3. Construção da Navegação Simples (Remove o espaço extra)
+        pg = st.navigation([pg_rpl, pg_config])
 
         # 4. Roda a página selecionada
         pg.run()
