@@ -26,7 +26,7 @@ def carregar_dados_memoria():
     # Carregar e limpar Rotas
     df_r = get_rotas()
     
-    colunas_texto_r = ['DE', 'PARA', 'MACH', 'FL', 'ROTA', 'EET']
+    colunas_texto_r = ['DE', 'PARA', 'MACH', 'FL', 'ROTA', 'EET', 'TV']
     for col in colunas_texto_r:
         if col in df_r.columns:
             df_r[col] = df_r[col].apply(lambda x: str(x).upper().strip() if pd.notnull(x) else "")
