@@ -91,7 +91,8 @@ def adicionar_usuario(email, senha_provisoria):
 
 def get_usuarios():
     try:
-        return conn.query("SELECT email, precisa_trocar_senha FROM usuarios")
+        # O ttl=0 obriga o Streamlit a ir ao Supabase ler os dados frescos em tempo real
+        return conn.query("SELECT email, precisa_trocar_senha FROM usuarios", ttl=0)
     except Exception:
         return pd.DataFrame(columns=['email', 'precisa_trocar_senha'])
 
