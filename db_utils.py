@@ -36,26 +36,43 @@ def save_aeroportos(df):
 # GESTÃO DE UTILIZADORES E SEGURANÇA
 # ==========================================
 def init_db():
-    """Cria a tabela de utilizadores no Supabase e o admin padrão."""
+    from sqlalchemy import text
     with conn.session as s:
-        # Usa o tipo BOOLEAN verdadeiro do PostgreSQL
+        # 1. Tabela de Utilizadores (que já tem)
         s.execute(text('''
             CREATE TABLE IF NOT EXISTS usuarios (
-                email TEXT PRIMARY KEY,
-                senha_hash TEXT NOT NULL,
-                precisa_trocar_senha BOOLEAN NOT NULL
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                senha TEXT NOT NULL,
+                precisa_trocar_senha BOOLEAN DEFAULT TRUE
             )
         '''))
         
-        # Verifica se o Admin existe
-        res = s.execute(text("SELECT COUNT(*) FROM usuarios")).scalar()
-        if res == 0:
-            senha_padrao = bcrypt.hashpw("glo2026".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            s.execute(text(
-                "INSERT INTO usuarios (email, senha_hash, precisa_trocar_senha) VALUES (:email, :senha, TRUE)"
-            ), {"email": "admin@glo.com.br", "senha": senha_padrao})
-        
-        s.commit() # Confirma as alterações na base de dados
+        # 2. NOVA: Tabela de Aeroportos
+        s.execute(text('''
+            CREATE TABLE IF NOT EXISTS aeroportos (
+                "IATA" TEXT,
+                "ICAO" TEXT,
+                "CIDADE" TEXT,
+                "ESTADO" TEXT
+            )
+        '''))
+
+        # 3. NOVA: Tabela de Rotas
+        s.execute(text('''
+            CREATE TABLE IF NOT EXISTS rotas (
+                "DE" TEXT,
+                "PARA" TEXT,
+                "MACH" TEXT,
+                "FL" TEXT,
+                "ROTA" TEXT,
+                "EET" TEXT,
+                "TV" TEXT,
+                "HORA INICIO" TEXT,
+                "HORA FIM" TEXT
+            )
+        '''))
+        s.commit()
 
 def verificar_login(email, senha):
     with conn.session as s:
