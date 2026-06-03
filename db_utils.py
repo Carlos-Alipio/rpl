@@ -120,3 +120,4 @@ def remover_usuario(email):
 
 # Inicializa as tabelas de segurança no arranque
 init_db()
+
