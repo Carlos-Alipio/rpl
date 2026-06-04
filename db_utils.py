@@ -14,16 +14,17 @@ conn = st.connection("supabase", type="sql")
 # ==========================================
 def get_rotas():
     try:
-        # conn.query já devolve um DataFrame do Pandas!
-        return conn.query("SELECT * FROM rotas")
+        # ttl=0 obriga o Streamlit a ignorar a memória e ir direto ao Supabase
+        return conn.query("SELECT * FROM rotas", ttl=0)
     except Exception:
-        return pd.DataFrame() # Retorna vazio se a tabela ainda não existir
+        # Se falhar, devolve a estrutura vazia para não quebrar a tela
+        return pd.DataFrame(columns=['DE', 'PARA', 'MACH', 'FL', 'ROTA', 'EET', 'TV', 'HORA INICIO', 'HORA FIM'])
 
 def get_aeroportos():
     try:
-        return conn.query("SELECT * FROM aeroportos")
+        return conn.query("SELECT * FROM aeroportos", ttl=0)
     except Exception:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['IATA', 'ICAO', 'CIDADE', 'ESTADO'])
 
 def save_rotas(df):
     # O to_sql com o engine do SQLAlchemy cria ou atualiza a tabela automaticamente no Supabase
