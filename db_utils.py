@@ -6,17 +6,11 @@ from sqlalchemy import text
 # ==========================================
 # CONEXÃO COM O SUPABASE
 # ==========================================
-# O Streamlit gere a conexão automaticamente através do secrets.toml
-#conn = st.connection("supabase", type="sql")
-
-# ==========================================
-# CONEXÃO COM O SUPABASE
-# ==========================================
 # Forçando a URL definitiva (com a porta 6543 do Supabase)
 conn = st.connection(
     "supabase", 
     type="sql", 
-    url="postgresql://postgres.przrcgxtnnwidmlkwhpk:Vqa4Qp5tku2lYsgj@aws-1-us-east-2.pooler.supabase.com:6543/postgres"
+    url="postgresql://postgres.przrcgxtnnwidmlkwhpk:SUA_SENHA_AQUI@aws-1-us-east-2.pooler.supabase.com:6543/postgres"
 )
 
 # ==========================================
@@ -24,10 +18,9 @@ conn = st.connection(
 # ==========================================
 def get_rotas():
     try:
-        # ttl=0 obriga o Streamlit a ignorar a memória e ir direto ao Supabase
+        # ttl=0 obriga o Streamlit a ir direto ao Supabase
         return conn.query("SELECT * FROM rotas", ttl=0)
     except Exception:
-        # Se falhar, devolve a estrutura vazia para não quebrar a tela
         return pd.DataFrame(columns=['DE', 'PARA', 'MACH', 'FL', 'ROTA', 'EET', 'TV', 'HORA INICIO', 'HORA FIM'])
 
 def get_aeroportos():
@@ -37,7 +30,6 @@ def get_aeroportos():
         return pd.DataFrame(columns=['IATA', 'ICAO', 'CIDADE', 'ESTADO'])
 
 def save_rotas(df):
-    # O to_sql com o engine do SQLAlchemy cria ou atualiza a tabela automaticamente no Supabase
     df.to_sql('rotas', con=conn.engine, if_exists='replace', index=False)
 
 def save_aeroportos(df):
@@ -49,7 +41,7 @@ def save_aeroportos(df):
 def init_db():
     from sqlalchemy import text
     with conn.session as s:
-        # 1. Tabela de Utilizadores (que já tem)
+        # 1. Tabela de Utilizadores
         s.execute(text('''
             CREATE TABLE IF NOT EXISTS usuarios (
                 id SERIAL PRIMARY KEY,
@@ -59,7 +51,7 @@ def init_db():
             )
         '''))
         
-        # 2. NOVA: Tabela de Aeroportos
+        # 2. Tabela de Aeroportos
         s.execute(text('''
             CREATE TABLE IF NOT EXISTS aeroportos (
                 "IATA" TEXT,
@@ -69,7 +61,7 @@ def init_db():
             )
         '''))
 
-        # 3. NOVA: Tabela de Rotas
+        # 3. Tabela de Rotas
         s.execute(text('''
             CREATE TABLE IF NOT EXISTS rotas (
                 "DE" TEXT,
@@ -115,11 +107,10 @@ def adicionar_usuario(email, senha_provisoria):
             s.commit()
         return True
     except Exception:
-        return False # E-mail já existe (Violação de Primary Key)
+        return False # E-mail já existe
 
 def get_usuarios():
     try:
-        # O ttl=0 obriga o Streamlit a ir ao Supabase ler os dados frescos em tempo real
         return conn.query("SELECT email, precisa_trocar_senha FROM usuarios", ttl=0)
     except Exception:
         return pd.DataFrame(columns=['email', 'precisa_trocar_senha'])
@@ -131,4 +122,3 @@ def remover_usuario(email):
 
 # Inicializa as tabelas de segurança no arranque
 init_db()
-

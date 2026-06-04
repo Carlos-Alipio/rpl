@@ -1,5 +1,5 @@
 import pandas as pd
-import sqlite3
+import streamlit as st
 import textwrap
 from datetime import datetime
 import os
@@ -79,29 +79,39 @@ def get_group_mask(weekdays_series):
 def gerar_ficheiros_rpl(caminho_csv_voos, data_inicio_str, data_fim_str):
     """
     Função que processa o CSV de malha, cruza com a base de dados e gera o RPL.
-    Retorna os caminhos dos ficheiros gerados.
     """
     print("A iniciar o processamento do RPL...")
 
-    # 1. LER DA BASE DE DADOS SQLITE (Muito mais rápido que Excel)
-    conn = sqlite3.connect('database.sqlite')
-    df_iata_icao = pd.read_sql("SELECT * FROM aeroportos", conn)
-    df_rotas = pd.read_sql("SELECT * FROM rotas", conn)
-    conn.close()
-
-    iata_icao = dict(zip(df_iata_icao['IATA'], df_iata_icao['ICAO']))
+    # 1. LER DA BASE DE DADOS DO SUPABASE
+    try:
+        from db_utils import get_aeroportos, get_rotas
+        
+        df_iata_icao = get_aeroportos()
+        df_rotas = get_rotas()
+        
+        # Validação de segurança
+        if df_iata_icao.empty or df_rotas.empty:
+            print("As tabelas de Rotas ou Aeroportos estão vazias no Supabase. Faça a importação primeiro.")
+            return None, None
+            
+        # Transforma a tabela num dicionário para traduzir rapidamente os códigos
+        iata_icao = dict(zip(df_iata_icao['IATA'], df_iata_icao['ICAO']))
+            
+    except Exception as e:
+        print(f"Erro ao ligar ao Supabase: {e}")
+        return None, None
 
     # 2. CONSTRUIR O DICIONÁRIO DE ROTAS
     routes_map = {}
     for index, row in df_rotas.iterrows():
-        origem, destino = str(row['DE']).strip(), str(row['PARA']).strip()
-        mach = str(row['MACH']).strip()[:5].ljust(5) if pd.notnull(row['MACH']) else 'N0000'
+        origem, destino = str(row.get('DE', '')).strip(), str(row.get('PARA', '')).strip()
+        mach = str(row.get('MACH', '')).strip()[:5].ljust(5) if pd.notnull(row.get('MACH')) else 'N0000'
         
-        fl_raw = str(row['FL']).strip() if pd.notnull(row['FL']) else '000'
+        fl_raw = str(row.get('FL', '000')).strip() if pd.notnull(row.get('FL')) else '000'
         if fl_raw.startswith('F'): fl_raw = fl_raw[1:]
         fl = fl_raw[:3].zfill(3)
             
-        rota = str(row['ROTA']).strip() if pd.notnull(row['ROTA']) else 'ROUTE UNKNOWN'
+        rota = str(row.get('ROTA', 'ROUTE UNKNOWN')).strip() if pd.notnull(row.get('ROTA')) else 'ROUTE UNKNOWN'
         route_string = f"{mach} {fl} {rota}"
         
         try: tv_str = str(int(float(row.get('TV', 0)))).zfill(4)
@@ -129,7 +139,12 @@ def gerar_ficheiros_rpl(caminho_csv_voos, data_inicio_str, data_fim_str):
         return pair_routes['default']
 
     # 3. LER O FICHEIRO DE VOOS E APLICAR FILTROS
-    df_voos = pd.read_csv(caminho_csv_voos, sep=';')
+    try:
+        df_voos = pd.read_csv(caminho_csv_voos, sep=';')
+    except Exception as e:
+        print(f"Erro ao ler o ficheiro CSV: {e}")
+        return None, None
+
     df_voos['Data_Voo'] = pd.to_datetime(df_voos['Day'], format='%d%b%Y')
 
     data_inicio = pd.to_datetime(data_inicio_str)
@@ -138,11 +153,19 @@ def gerar_ficheiros_rpl(caminho_csv_voos, data_inicio_str, data_fim_str):
     filtro_datas = (df_voos['Data_Voo'] >= data_inicio) & (df_voos['Data_Voo'] <= data_fim)
     df_teste = df_voos[filtro_datas].copy()
 
+    if df_teste.empty:
+        print("Nenhum voo encontrado no período selecionado.")
+        return None, None
+
     df_teste['Dept_Sta_Map'] = df_teste['Dept Sta'].map(iata_icao).fillna(df_teste['Dept Sta'])
     df_teste['Arvl_Sta_Map'] = df_teste['Arvl Sta'].map(iata_icao).fillna(df_teste['Arvl Sta'])
 
     mascara_rpl = df_teste.apply(lambda row: is_valid_rpl(row['Dept_Sta_Map'], row['Arvl_Sta_Map']), axis=1)
     df_teste = df_teste[mascara_rpl].copy()
+
+    if df_teste.empty:
+        print("Nenhum voo válido para RPL encontrado após aplicar filtros.")
+        return None, None
 
     df_teste['Equip_Map'] = df_teste['Equip'].apply(map_equipment)
     df_teste['Dept_Time_Map'] = df_teste['Dept Time'].astype(str).str.replace(':', '')
@@ -230,9 +253,7 @@ def gerar_ficheiros_rpl(caminho_csv_voos, data_inicio_str, data_fim_str):
     print(f"✅ Processamento concluído: {output_txt} e {output_csv} gerados com sucesso.")
     return output_txt, output_csv
 
-# Este bloco permite testar o ficheiro diretamente no terminal sem precisar da interface gráfica
 if __name__ == '__main__':
-    # Adapte o nome do ficheiro CSV se o seu for diferente
     gerar_ficheiros_rpl(
         caminho_csv_voos='Flight_List_UTC_25May26.csv', 
         data_inicio_str='2026-05-28', 
