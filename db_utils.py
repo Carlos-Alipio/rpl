@@ -7,7 +7,19 @@ from sqlalchemy import text
 # CONEXÃO COM O SUPABASE
 # ==========================================
 # O Streamlit gere a conexão automaticamente através do secrets.toml
-conn = st.connection("supabase", type="sql")
+#conn = st.connection("supabase", type="sql")
+
+# ==========================================
+# CONEXÃO COM O SUPABASE
+# ==========================================
+# Forçando o URL diretamente no código! O Streamlit não tem como fugir para o SQLite agora.
+conn = st.connection(
+    "supabase", 
+    type="sql", 
+    url="postgresql://postgres.przrcgxtnnwidmlkwhpk:Vqa4Qp5tku2@aws-1-us-east-2.pooler.supabase.com:5432/postgres"
+)
+
+#"postgresql://postgres.przrcgxtnnwidmlkwhpk:Vqa4Qp5tku2lYsgj@aws-0-us-west-2.pooler.supabase.com:6543/postgres"
 
 # ==========================================
 # GESTÃO DE ROTAS E AEROPORTOS (PANDAS + SQLALCHEMY)
